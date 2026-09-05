@@ -10,14 +10,7 @@ import GameFlow.Models.Rect
  * the "low resource usage" requirement. The OpenCV adapter in OpencvTemplateMatcher
  * is used instead when JavaCV is present on the classpath.
  */
-class PureJavaTemplateMatcher : TemplateMatcher {
-
-    private val scaleDown: Int
-
-    constructor() {
-        // Down-sample 2x for coarse matching => ~4x fewer operations.
-        this.scaleDown = 2
-    }
+class PureJavaTemplateMatcher(private val scaleDown: Int = 2) : TemplateMatcher {
 
     override fun engineName(): String = "pure-java"
 
@@ -26,9 +19,7 @@ class PureJavaTemplateMatcher : TemplateMatcher {
         if (template.width > source.width || template.height > source.height) return MatchResult.miss()
 
         // Down-sample for fast coarse matching (branch in downsampled space).
-        val sw = Math.min(scaleDown, source.width / template.width)
-        val sh = Math.min(scaleDown, source.height / template.height)
-        val sf = Math.max(1, Math.min(sw, sh))
+        val sf = matchScale(source, template)
         val small = if (sf > 1) source.downsample(sf) else source
         val tpl = if (sf > 1) template.downsample(sf) else template
 
@@ -64,6 +55,15 @@ class PureJavaTemplateMatcher : TemplateMatcher {
         val cy = oy + template.height / 2
         return MatchResult.hit(best, Point(cx, cy),
             Rect(ox, oy, template.width, template.height))
+    }
+
+    private fun matchScale(source: GrayImage, template: GrayImage): Int {
+        // Cap the down-sample so the scanned template never falls below a
+        // minimum width; this avoids runaway CPU on tiny templates.
+        val cap = template.width / 12
+        val sw = Math.min(scaleDown, source.width / template.width)
+        val sh = Math.min(scaleDown, source.height / template.height)
+        return Math.max(1, Math.min(Math.max(1, cap), Math.min(sw, sh)))
     }
 
     private fun scoreAt(src: GrayImage, tpl: GrayImage, ox: Int, oy: Int,

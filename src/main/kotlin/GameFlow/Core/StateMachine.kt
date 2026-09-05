@@ -18,8 +18,7 @@ class StateMachine(private val log: LoggingService, private val source: String) 
 
     /** Transitions to a new state, logging the transition (info level). */
     fun transitionTo(next: GameState): GameState {
-        val prev = current
-        synchronized (this) {
+        val prev = synchronized (this) {
             if (next == GameState.UNKNOWN) {
                 unknownStreak++
             } else {
@@ -28,6 +27,7 @@ class StateMachine(private val log: LoggingService, private val source: String) 
             current = next
             history.addLast(next)
             if (history.size > 20) history.removeFirst()
+            current
         }
         if (prev != next) {
             log.info(source, "State $prev -> $next")

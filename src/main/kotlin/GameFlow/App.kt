@@ -21,6 +21,8 @@ import GameFlow.Input.MouseController
 import GameFlow.Models.AutomationStatus
 import GameFlow.Models.DashboardModel
 import GameFlow.Models.GameType
+import GameFlow.Performance.HardwareProfile
+import GameFlow.Performance.SystemProfiler
 import GameFlow.Services.GameWindowDetector
 import GameFlow.Services.LoggingService
 import GameFlow.UI.GameFlowFrame
@@ -42,6 +44,10 @@ class App {
     fun start(demo: Boolean, headless: Boolean) {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) } catch (ignored: Throwable) { }
 
+        // Detect the host machine once at startup so the vision pipeline and
+        // polling cadence are scaled (LOW/MEDIUM/HIGH) for its capabilities.
+        val perf: HardwareProfile = SystemProfiler().detect()
+
         val dbPath = dataDir().resolve("gameflow.db")
         val dbParent = dbPath.getParent()
         if (dbParent != null) Files.createDirectories(dbParent)
@@ -62,20 +68,30 @@ class App {
             return
         }
         val gameKey = game.profileKey()
-        val settings = settingsRepo.load(gameKey)
+        var settings = settingsRepo.load(gameKey)
+
+        // Apply hardware-tuned polling on first run; keep any later edits.
+        if (settings.isStockDefaults()) {
+            settings = perf.recommendedSettings()
+            settingsRepo.save(gameKey, settings)
+            log.info("Hardware", "Profile " + perf.summarize() + " -> tuned poll cadence applied for " + game.displayName() + ".")
+        } else {
+            log.info("Hardware", "Profile " + perf.summarize() + "; keeping user settings for " + game.displayName() + ".")
+        }
         log.setDebugEnabled(settings.debugLogging)
         log.info("App", "Selected game: " + game.displayName())
 
         val mouse = MouseController()
-        val matcher = TemplateMatchers.createDefault()
+        val matcher = TemplateMatchers.createDefault(perf.matcherScaleDown(), false)
         val session = GameSessionFactory.create(game, matcher, mouse, settings.actionCooldownMs)
 
         val detector = GameWindowDetector(log)
         val coreState = StateMachine(log, "gameflow")
         val safety = SafetyManager(log, "gameflow", settings.maxRetries,
             settings.actionTimeoutMs, settings.actionCooldownMs)
-        val poller = AdaptivePoller({ settings.pollActiveMs })
-        val engine = AutomationEngine(session, coreState, safety, poller, dash, log, "gameflow")
+        val poller = AdaptivePoller { mode -> settings.pollMsFor(mode) }
+        val engine = AutomationEngine(session, coreState, safety, poller, dash, log, "gameflow",
+            perf.matcherScaleDown(), perf.changeSampleStride())
 
         val ensureWindow: () -> Unit = {
             val detected = detector.detect(game)
@@ -105,6 +121,7 @@ class App {
         frame.onSettingsChanged {
             val updated = frame.settingsSnapshot()
             settingsRepo.save(gameKey, updated)
+            settings = updated
             log.setDebugEnabled(updated.debugLogging)
             log.info("App", "Settings updated (feature=" + updated.feature + ").")
         }
@@ -132,7 +149,7 @@ class App {
 
     companion object {
         /** App data location (user home); the SQLite DB lives here. */
-        fun dataDir(): Path = Path.of(System.getProperty("user.home", "."), ".", "GameFlowAssistant")
+        fun dataDir(): Path = Path.of(System.getProperty("user.home", "."), "GameFlowAssistant")
 
         @JvmStatic
         fun main(args: Array<String>) {

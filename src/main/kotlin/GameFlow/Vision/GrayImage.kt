@@ -37,14 +37,32 @@ class GrayImage(val width: Int, val height: Int) {
      * Similarity in [0,1] vs another same-size frame (1 = identical).
      * Backs the "capture and process only when the screen changed" optimization.
      */
-    fun similarity(other: GrayImage?): Float {
+    fun similarity(other: GrayImage?): Float = similarity(other, 1)
+
+    /**
+     * Same as {@link #similarity(GrayImage)} but samples only every {@code stride}
+     * pixels in both directions. Cheaper on large frames; used on weak hardware.
+     */
+    fun similarity(other: GrayImage?, stride: Int): Float {
         if (other == null || other.width != width || other.height != height) return 0f
+        val s = Math.max(1, stride)
         var acc = 0.0
-        for (i in 0 until data.size) {
-            val d = data[i] - other.data[i]
-            acc += d * d
+        var n = 0
+        var y = 0
+        while (y < height) {
+            val row = y * width
+            val otherRow = y * other.width
+            var x = 0
+            while (x < width) {
+                val d = data[row + x] - other.data[otherRow + x]
+                acc += d * d
+                n++
+                x += s
+            }
+            y += s
         }
-        val mse = acc / data.size
+        if (n == 0) return 0f
+        val mse = acc / n
         return Math.max(0.0, 1.0 - Math.sqrt(mse) / 128.0).toFloat()
     }
 

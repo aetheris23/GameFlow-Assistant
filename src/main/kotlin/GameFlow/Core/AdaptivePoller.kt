@@ -8,12 +8,12 @@ import GameFlow.Models.PollMode
  * suspended entirely while paused. The engine asks this for how long to sleep
  * between captures.
  */
-class AdaptivePoller(private val intervalFor: () -> Int) {
+class AdaptivePoller(private val intervalFor: (PollMode) -> Int) {
 
     /** Sleeps for the interval bound to the given mode, honoring interrupts. */
     fun sleepFor(mode: PollMode) {
-        val ms = intervalFor()
         if (mode == PollMode.PAUSED) return // suspended: engine waits on a latch instead
+        val ms = intervalFor(mode)
         try { Thread.sleep(Math.max(0, ms).toLong()) } catch (ignored: InterruptedException) { Thread.currentThread().interrupt() }
     }
 

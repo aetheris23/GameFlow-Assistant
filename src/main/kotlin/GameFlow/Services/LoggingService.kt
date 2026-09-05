@@ -2,6 +2,8 @@ package GameFlow.Services
 
 import java.util.ArrayDeque
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 import kotlin.jvm.Volatile
 import GameFlow.Database.DatabaseContext
@@ -12,10 +14,11 @@ import GameFlow.Models.LogLevel
 /**
  * Thread-safe logger. {@code warn/error/info} always pass through; DEBUG entries
  * are suppressed while debug logging is off (default) to save resources. Logs
- * are persisted to SQLite asynchronously and pushed to UI subscribers on a small
+ * are persisted to SQLite by a single daemon flusher thread through a bounded
+ * queue (never one thread per entry), and pushed to UI subscribers on a small
  * ring buffer so the dashboard gets a live view.
  */
-class LoggingService {
+class LoggingService(private val recentCapacity: Int) {
 
     private val ringCapacity: Int
     private val recent: ArrayDeque<LogEntry> = ArrayDeque()
@@ -24,8 +27,14 @@ class LoggingService {
     private var db: DatabaseContext? = null
     private var settings: SettingsRepository? = null
 
-    constructor(recentCapacity: Int) {
+    private val flushQueue: LinkedBlockingQueue<LogEntry> = LinkedBlockingQueue(512)
+    private val flusher: Thread
+
+    init {
         this.ringCapacity = Math.max(50, recentCapacity)
+        this.flusher = Thread({ drain() }, "gameflow-log-flusher")
+        flusher.setDaemon(true)
+        flusher.start()
     }
 
     fun attach(db: DatabaseContext?) {
@@ -53,10 +62,25 @@ class LoggingService {
             recent.addLast(entry)
             while (recent.size > ringCapacity) recent.removeFirst()
         }
-        if (db != null) {
-            Thread({ persist(entry) }).start()
+        if (db != null && !flushQueue.offer(entry)) {
+            // Queue is full: drop the oldest entry to bound memory instead of
+            // falling behind on a slow disk.
+            flushQueue.poll()
+            flushQueue.offer(entry)
         }
         for (c in listeners) c(entry)
+    }
+
+    /** Single persistent flusher; keeps SQLite traffic off the caller's thread. */
+    private fun drain() {
+        while (true) {
+            try {
+                val entry = flushQueue.poll(2, TimeUnit.SECONDS)
+                if (entry != null) persist(entry)
+            } catch (ignored: Throwable) {
+                // daemon must never die and never break the app
+            }
+        }
     }
 
     private fun persist(entry: LogEntry) {

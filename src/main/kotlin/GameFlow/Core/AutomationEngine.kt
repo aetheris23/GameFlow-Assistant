@@ -31,11 +31,13 @@ class AutomationEngine(
     private val poller: AdaptivePoller,
     private val dash: DashboardModel,
     private val log: LoggingService,
-    private val source: String) : AutoCloseable {
+    private val source: String,
+    private val matcherScaleDown: Int = 2,
+    private val changeSampleStride: Int = 1) : AutoCloseable {
 
     private val capture = ScreenCapture()
-    private val changeDetector = ChangeDetector()
-    private val matcher: TemplateMatcher = TemplateMatchers.createDefault()
+    private val changeDetector = ChangeDetector(changeSampleStride)
+    private val matcher: TemplateMatcher = TemplateMatchers.createDefault(matcherScaleDown, false)
 
     @Suppress("kotlin:S1135") private val gate: Object = Object()
     @Volatile private var userPaused: Boolean = false

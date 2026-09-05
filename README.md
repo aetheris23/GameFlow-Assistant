@@ -35,6 +35,10 @@ and run it on your own machine with a Kotlin/Gradle toolchain):
   never clicks while the state is `UNKNOWN` — it pauses and tells you.
 - **Adaptive polling** (`LOADING ≈1s`, `ACTIVE ≈300ms`, `IDLE ≈1.5s`,
   `PAUSED` = suspended) keeps CPU low.
+- **Automatic hardware detection**: on startup the app probes CPU cores, RAM and
+  current load, classifies the machine as LOW / MEDIUM / HIGH, and dials the
+  polling cadence, change-detection sampling and template-matching scale up or
+  down so weak laptops are never pegged (first-run only; later edits are kept).
 - **"Capture → compare → process only when changed"** via a change detector.
 - **ROI-based template matching** (bottom button bar, dialog area, mission
   panel) instead of scanning the whole desktop.

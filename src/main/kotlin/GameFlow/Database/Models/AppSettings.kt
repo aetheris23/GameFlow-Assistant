@@ -7,7 +7,7 @@ import GameFlow.Models.PollMode
  * Operational settings per game, mostly tunable numbers that influence the
  * adaptive scheduler and the safety manager. Loaded from AutomationSettings.
  */
-class AppSettings(
+data class AppSettings(
     val pollLoadingMs: Int,
     val pollActiveMs: Int,
     val pollIdleMs: Int,
@@ -22,6 +22,9 @@ class AppSettings(
         fun defaults(): AppSettings =
             AppSettings(1000, 300, 1500, 400, 5, 15000, FeatureType.STORY, false, false)
     }
+
+    /** True when the user has never customized anything since the stock values. */
+    fun isStockDefaults(): Boolean = this == defaults()
 
     fun pollMsFor(mode: PollMode): Int {
         return if (mode == PollMode.LOADING) pollLoadingMs
